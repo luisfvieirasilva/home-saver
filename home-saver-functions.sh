@@ -38,7 +38,12 @@ function file_tracked {
     local home_dir=$(echo ~)
     local relative_file_path
     relative_file_path="$(realpath --relative-to="$home_dir" "$file_path")"
-    grep_result=$(grep "^file_path:$relative_file_path" "$control_file" | wc -l)
+    local regex_form=$(echo "$relative_file_path" | sed 's/\//\\\//g')
+    regex_form=$(echo "$regex_form" | sed 's/\./\\./g')
+    regex_form=$(echo "$regex_form" | sed 's/\[/\\[/g')
+    regex_form=$(echo "$regex_form" | sed 's/\]/\\]/g')
+    regex_form=$(echo "$regex_form" | sed 's/\-/\\-/g')
+    grep_result=$(grep "^file_path:$regex_form" "$control_file" | wc -l)
 
     # If the file is't track
     if [[ $grep_result -eq 0 ]]; then
@@ -87,8 +92,18 @@ function update_file {
 
 function delete_file {
 
+    echo "$@"
     local file_path="$1"
     local home_dir=$(echo ~)
+
+    local relative_file_path="$(realpath --relative-to="$home_dir" "$file_path")"
+    local relative_file_dir="$(dirname "$relative_file_path")"
+    local file_name="$(basename "$relative_file_path")"
+    local regex_form=$(echo "$relative_file_path" | sed 's/\//\\\//g')
+    regex_form=$(echo "$regex_form" | sed 's/\./\\./g')
+    regex_form=$(echo "$regex_form" | sed 's/\[/\\[/g')
+    regex_form=$(echo "$regex_form" | sed 's/\]/\\]/g')
+    regex_form=$(echo "$regex_form" | sed 's/\-/\\-/g')
 
     file_tracked "$file_path" > /dev/null
     local ret=$?
@@ -96,10 +111,6 @@ function delete_file {
         echo "File isn't track: $file_path"
         return
     fi
-
-    local relative_file_path="$(realpath --relative-to="$home_dir" "$file_path")"
-    local relative_file_dir="$(dirname "$relative_file_path")"
-    local file_name="$(basename "$relative_file_path")"
 
     echo "Untracking file $file_path"
 
@@ -109,8 +120,7 @@ function delete_file {
     # Remove file
     rm "$file_name"
     # Remove file from control_file
-    local regex_form=$(echo "$relative_file_path" | sed 's/\//\\\//g')
-    sed "/^file_path:$(echo "$relative_file_path" | sed 's/\//\\\//g')/ d" "$control_file" > .linux-tmp
+    sed "/^file_path:$regex_form/ d" "$control_file" > .linux-tmp
     mv .linux-tmp "$control_file"
 
     # If already at saver_directory root, just return
@@ -125,7 +135,6 @@ function delete_file {
         directory_name="$(basename "$(pwd)")"
         cd ..
         number_of_files=$(ls | grep -v $directory_name | wc -l)
-        echo $number_of_files
     done
     
     # Confirm directory deletion
@@ -151,7 +160,7 @@ function delete_file {
 }
 
 # List all tracked files
-function list_files {
+function list_tracked_files {
 
     grep "file_path" "$control_file" | cut -d ":" -f 2- | sort
 
@@ -160,9 +169,50 @@ function list_files {
 # Get all files passed
 function all_files {
 
-    for i in $(seq 2 $#); do
+    for i in $(seq 1 $#); do
         eval file_path=\$$i
         echo $file_path
     done
 
 }
+
+function check_if_exists {
+
+    files_paths=${@}
+    for file_path in $files_paths; do
+        # If the file doesn't exist
+        if [[ ! -e "$file_path" ]]; then
+            echo "Error: File $file_path doesn't exist" >&2
+            return 0
+        fi
+    done
+
+    return 1
+
+}
+
+function invalid_arguments {
+
+    sub_command=$1
+    local need_check_files="no"
+    if [[ "$sub_command" != "list" ]]; then
+        need_check_files="yes"
+    fi
+
+    if [[ $need_check_files == "yes" ]]; then
+        if [[ $# -le 1 ]]; then
+            echo "Error: At least one file needed" >&2
+            return 4
+        fi
+        files_paths=${@:2}
+        check_if_exists $files_paths
+        ret=$?
+        if [[ $ret -eq 0 ]]; then
+            return 3
+        fi
+    fi 
+
+    return 0
+
+}
+

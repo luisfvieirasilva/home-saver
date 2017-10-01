@@ -6,6 +6,12 @@
 #   basename
 #   stat
 
+# Errors code:
+# 1 - Invalid option
+# 2 - Invalid command
+# 3 - File don't exist
+# 4 - No file passed
+
 home_dir=$(echo ~)
 saver_directory="$home_dir/linux-home"
 control_file="$saver_directory/.control_file"
@@ -18,11 +24,21 @@ function printHelpMessage {
     echo -e "\tdelete: Deletes the files_path that are inside backup directory"
     echo -e "\tlist: Lists all files inside the backup directory"
     echo -e "\ttrack: Checks if the files_path are tracked"
-    echo "Options:"
-    echo -e "\t-XXX: "
 }
 
-source "home-saver-functions.sh"
+function get_script_location {
+    #Get the location of the script
+    SOURCE="${BASH_SOURCE[0]}"
+    while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+        DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+        SOURCE="$(readlink "$SOURCE")"
+        [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+    done
+        DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+        echo $DIR
+}
+
+source "$(get_script_location)/home-saver-functions.sh"
 
 sub_command=$1
 
@@ -37,37 +53,51 @@ while getopts ":h" opt; do
             ;;
 
         \?)
-            echo -e "${Red}Invalid option.${NC}" >&2
+            echo -e "Error: Invalid option" >&2
             printHelpMessage
             exit 1
             ;;
         :)
-            echo -e "${Red}-$OPTARG requires an argument.${NC}" >&2
+            echo -e "Error: -$OPTARG requires an argument" >&2
             printHelpMessage
             exit 1
             ;;
     esac
 done
 
-home_dir=$(echo ~)
+# Check if the arguments are valids
+invalid_arguments $@
+ret=$?
+if [[ $ret -ne 0 ]]; then
+    exit $ret
+fi
+
+#files_paths="${@:2}"
+#for file_path in $files_paths; do
+#    echo "$file_path"
+#done
 
 if [[ $sub_command == "add" ]]; then
-    for file_path in $(all_files $@); do
+
+    for file_path in "${@:2}"; do
         add_file "$file_path"
     done
 
 elif [[ $sub_command == "update" ]]; then
-    for file_path in $(all_files $@); do
+
+    for file_path in "${@:2}"; do
         update_file "$file_path"
     done
 
 elif [[ $sub_command == "delete" ]]; then
-    for file_path in $(all_files $@); do
+
+    for file_path in "${@:2}"; do
         delete_file "$file_path"
     done
 
 elif [[ $sub_command == "track" ]]; then
-    for file_path in $(all_files $@); do
+
+    for file_path in "${@:2}"; do
         ret=$(file_tracked "$file_path")
         if [[ $ret -eq 1 ]]; then
             echo "File "$file_path" tracked"
@@ -77,10 +107,10 @@ elif [[ $sub_command == "track" ]]; then
     done
 
 elif [[ $sub_command == "list" ]]; then
-    list_files
+    list_tracked_files
 
 else
-    echo "Invalid command"
+    echo "Invalid command" >&2
     printHelpMessage
     exit 2
 fi
