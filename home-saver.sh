@@ -72,10 +72,9 @@ if [[ $ret -ne 0 ]]; then
     exit $ret
 fi
 
-#files_paths="${@:2}"
-#for file_path in $files_paths; do
-#    echo "$file_path"
-#done
+# Creates a temporary directory
+tmp_directory=/tmp/home-saver_$PPID/
+mkdir -p $tmp_directory
 
 if [[ $sub_command == "add" ]]; then
 
@@ -109,8 +108,22 @@ elif [[ $sub_command == "track" ]]; then
 elif [[ $sub_command == "list" ]]; then
     list_tracked_files
 
+elif [[ $sub_command == "status" ]]; then
+    
+    tmp_file="$tmp_directory/status-exit"
+    for file_path in $(list_tracked_files); do
+        f_status=$(file_status $file_path)
+        echo "$file_path $f_status" >> "$tmp_file"
+    done
+
+    column -t "$tmp_file"
+
 else
     echo "Invalid command" >&2
     printHelpMessage
+    rm -r $tmp_directory
     exit 2
 fi
+
+rm -r $tmp_directory
+exit 0

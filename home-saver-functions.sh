@@ -29,33 +29,6 @@ function add_file {
 
 }
 
-# Check if a file already is being tracked
-# Return 0 if the file isn't track
-# return 1 otherwise
-function file_tracked {
-
-    local file_path="$1"
-    local home_dir=$(echo ~)
-    local relative_file_path
-    relative_file_path="$(realpath --relative-to="$home_dir" "$file_path")"
-    local regex_form=$(echo "$relative_file_path" | sed 's/\//\\\//g')
-    regex_form=$(echo "$regex_form" | sed 's/\./\\./g')
-    regex_form=$(echo "$regex_form" | sed 's/\[/\\[/g')
-    regex_form=$(echo "$regex_form" | sed 's/\]/\\]/g')
-    regex_form=$(echo "$regex_form" | sed 's/\-/\\-/g')
-    grep_result=$(grep "^file_path:$regex_form" "$control_file" | wc -l)
-
-    # If the file is't track
-    if [[ $grep_result -eq 0 ]]; then
-        echo "0"
-        return 0
-    else
-        echo "1"
-        return 1
-    fi
-
-}
-
 # Update a tracked file
 function update_file {
 
@@ -159,19 +132,70 @@ function delete_file {
     
 }
 
-# List all tracked files
-function list_tracked_files {
+# Check if a file already is being tracked
+# Return 0 if the file isn't track
+# return 1 otherwise
+function file_tracked {
 
-    grep "file_path" "$control_file" | cut -d ":" -f 2- | sort
+    local file_path="$1"
+    local home_dir=$(echo ~)
+    local relative_file_path
+    relative_file_path="$(realpath --relative-to="$home_dir" "$file_path")"
+    local regex_form=$(echo "$relative_file_path" | sed 's/\//\\\//g')
+    regex_form=$(echo "$regex_form" | sed 's/\./\\./g')
+    regex_form=$(echo "$regex_form" | sed 's/\[/\\[/g')
+    regex_form=$(echo "$regex_form" | sed 's/\]/\\]/g')
+    regex_form=$(echo "$regex_form" | sed 's/\-/\\-/g')
+    grep_result=$(grep "^file_path:$regex_form" "$control_file" | wc -l)
+
+    # If the file is't track
+    if [[ $grep_result -eq 0 ]]; then
+        echo "0"
+        return 0
+    else
+        echo "1"
+        return 1
+    fi
 
 }
 
-# Get all files passed
-function all_files {
+# Check the status of a file
+function file_status {
 
-    for i in $(seq 1 $#); do
-        eval file_path=\$$i
-        echo $file_path
+    local file_path="$1"
+    local home_dir=$(echo ~)
+    local relative_file_path="$(realpath --relative-to="$home_dir" "$file_path")"
+
+    file_tracked "$file_path" > /dev/null
+    local ret=$?
+    if [[ $ret -eq 0 ]]; then
+        echo "doesn't track"
+        return
+    fi
+
+    if [[ ! -e "$file_path" ]]; then
+        echo "doesn't exist"
+        return
+    fi
+
+    echo "diff "$file_path" "$saver_directory/$relative_file_path" > /dev/null" >&2
+    diff "$file_path" "$saver_directory/$relative_file_path" > /dev/null
+    ret=$?
+    if [[ $_ret -eq 1 ]]; then
+        echo "modified"
+    else
+        echo "updated"
+    fi
+    return
+
+}
+
+# List all tracked files
+function list_tracked_files {
+
+    local home_dir=$(echo ~)
+    for file in $(grep "file_path" "$control_file" | cut -d ":" -f 2- | sort); do
+        echo "$home_dir/$file"
     done
 
 }
@@ -194,9 +218,13 @@ function check_if_exists {
 function invalid_arguments {
 
     sub_command=$1
-    local need_check_files="no"
-    if [[ "$sub_command" != "list" ]]; then
-        need_check_files="yes"
+    local need_check_files="yes"
+    if [[ "$sub_command" == "list" ]]; then
+        need_check_files="no"
+    elif [[ "$sub_command" == "update" ]] && [[ "$2" == "all" ]]; then
+        need_check_files="no"
+    elif [[ "$sub_command" == "status" ]]; then
+        need_check_files="no"
     fi
 
     if [[ $need_check_files == "yes" ]]; then
@@ -216,3 +244,12 @@ function invalid_arguments {
 
 }
 
+# Get all files passed
+function all_files {
+
+    for i in $(seq 1 $#); do
+        eval file_path=\$$i
+        echo $file_path
+    done
+
+}
