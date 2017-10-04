@@ -6,7 +6,8 @@ function add_file {
     local file_path="$1"
     local home_dir=$(echo ~)
 
-    local relative_file_path="$(realpath --relative-to="$home_dir" "$file_path")"
+    local relative_file_path="$(realpath --relative-to="$home_dir" \
+        "$file_path")"
     local relative_file_dir="$(dirname "$relative_file_path")"
     local relative_file_name="$(basename "$relative_file_path")"
 
@@ -42,7 +43,8 @@ function update_file {
         return
     fi
 
-    local relative_file_path="$(realpath --relative-to="$home_dir" "$file_path")"
+    local relative_file_path="$(realpath --relative-to="$home_dir" \
+        "$file_path")"
 
     diff "$file_path" "$saver_directory/$relative_file_path" > /dev/null
     local diff_res=$?
@@ -63,13 +65,30 @@ function update_file {
 
 }
 
-function delete_file {
+# Update all tracked files
+function update_all {
 
-    echo "$@"
     local file_path="$1"
     local home_dir=$(echo ~)
 
-    local relative_file_path="$(realpath --relative-to="$home_dir" "$file_path")"
+    for file_path in $(list_tracked_files); do
+        # Check file status
+        f_status=$(file_status $file_path)
+
+        if [[ "$f_status" == "modified" ]]; then
+            update_file "$file_path"
+        fi
+    done
+
+}
+
+function delete_file {
+
+    local file_path="$1"
+    local home_dir=$(echo ~)
+
+    local relative_file_path="$(realpath --relative-to="$home_dir" \
+        "$file_path")"
     local relative_file_dir="$(dirname "$relative_file_path")"
     local file_name="$(basename "$relative_file_path")"
     local regex_form=$(echo "$relative_file_path" | sed 's/\//\\\//g')
@@ -104,7 +123,8 @@ function delete_file {
 
     # Delete all unnecessary directories
     number_of_files=$(ls | wc -l)
-    while [[ "$(pwd)" != "$saver_directory" ]] && [[ "$number_of_files" -eq 0 ]]; do
+    while [[ "$(pwd)" != "$saver_directory" ]] && \
+        [[ "$number_of_files" -eq 0 ]]; do
         directory_name="$(basename "$(pwd)")"
         cd ..
         number_of_files=$(ls | grep -v $directory_name | wc -l)
@@ -114,14 +134,15 @@ function delete_file {
     if [[ ! -z $directory_name ]]; then
 
         directory_name="$(realpath "$directory_name")"
-        read -r -p "Confirm deletion of $directory_name directory [y/N]" response
+        read -r -p "Confirm deletion of $directory_name directory [Y/n]" \
+            response
         case $response in
-            [yY][eE][sS]|[yY])
-                rm -r $directory_name
-                echo "Directory $directory_name deleted"
+            [nN][oO]|[nN])
+                echo "Deletion canceled"
                 ;;
             *)
-                echo "Deletion canceled"
+                rm -r $directory_name
+                echo "Directory $directory_name deleted"
                 ;;
         esac
 
@@ -130,6 +151,32 @@ function delete_file {
     # Goes back to original directory
     cd $initial_diretory
     
+}
+
+# Delete from track directories all files that don't exist any more
+function delete_deleted {
+
+    local file_path="$1"
+    local home_dir=$(echo ~)
+
+    for file_path in $(list_tracked_files); do
+        # Check file status
+        f_status=$(file_status $file_path)
+
+        if [[ "$f_status" == "doesn't_exist" ]]; then
+            read -r -p "Confirm deletion of $file_path file [Y/n]" \
+                response
+            case $response in
+                [nN][oO]|[nN])
+                    echo "Deletion canceled"
+                    ;;
+                *)
+                    delete_file "$file_path"
+                    ;;
+            esac
+        fi
+    done
+
 }
 
 # Check if a file already is being tracked
@@ -164,24 +211,24 @@ function file_status {
 
     local file_path="$1"
     local home_dir=$(echo ~)
-    local relative_file_path="$(realpath --relative-to="$home_dir" "$file_path")"
+    local relative_file_path="$(realpath --relative-to="$home_dir" \
+        "$file_path")"
 
     file_tracked "$file_path" > /dev/null
     local ret=$?
     if [[ $ret -eq 0 ]]; then
-        echo "doesn't track"
+        echo "doesn't_track"
         return
     fi
 
     if [[ ! -e "$file_path" ]]; then
-        echo "doesn't exist"
+        echo "doesn't_exist"
         return
     fi
 
-    echo "diff "$file_path" "$saver_directory/$relative_file_path" > /dev/null" >&2
     diff "$file_path" "$saver_directory/$relative_file_path" > /dev/null
     ret=$?
-    if [[ $_ret -eq 1 ]]; then
+    if [[ $ret -eq 1 ]]; then
         echo "modified"
     else
         echo "updated"
@@ -200,56 +247,24 @@ function list_tracked_files {
 
 }
 
-function check_if_exists {
+# Check if the arguments are valid files
+function invalid_arguments {
 
-    files_paths=${@}
-    for file_path in $files_paths; do
+    if [[ $# -eq 0 ]]; then
+        echo "Error: At least one file needed" >&2
+        return 4
+    fi
+
+    for file_path in $@; do
+
         # If the file doesn't exist
         if [[ ! -e "$file_path" ]]; then
             echo "Error: File $file_path doesn't exist" >&2
-            return 0
-        fi
-    done
-
-    return 1
-
-}
-
-function invalid_arguments {
-
-    sub_command=$1
-    local need_check_files="yes"
-    if [[ "$sub_command" == "list" ]]; then
-        need_check_files="no"
-    elif [[ "$sub_command" == "update" ]] && [[ "$2" == "all" ]]; then
-        need_check_files="no"
-    elif [[ "$sub_command" == "status" ]]; then
-        need_check_files="no"
-    fi
-
-    if [[ $need_check_files == "yes" ]]; then
-        if [[ $# -le 1 ]]; then
-            echo "Error: At least one file needed" >&2
-            return 4
-        fi
-        files_paths=${@:2}
-        check_if_exists $files_paths
-        ret=$?
-        if [[ $ret -eq 0 ]]; then
             return 3
         fi
-    fi 
+
+    done
 
     return 0
-
-}
-
-# Get all files passed
-function all_files {
-
-    for i in $(seq 1 $#); do
-        eval file_path=\$$i
-        echo $file_path
-    done
 
 }
